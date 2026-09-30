@@ -20,6 +20,7 @@ export type GameSnapshot = {
   phase: GamePhase;
   level: number;
   score: number;
+  levelScore: number;
   fruitEaten: number;
   target: number;
   progress: number;

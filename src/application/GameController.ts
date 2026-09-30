@@ -5,16 +5,29 @@ import { LEVELS } from '../game/levels';
 import { SnakeGame } from '../game/snakeGame';
 import type { Direction, GameListener, GameSnapshot, PauseSource } from '../game/types';
 import type { GameEventMap, RunEndReason } from './gameEvents';
+import { offlinePlatform, type GamePlatform, type RunSummary } from './GamePlatform';
 
-const beginsRun = (previous: GameSnapshot, next: GameSnapshot): boolean =>
-  next.phase === 'playing' && ['menu', 'level-complete', 'game-over', 'finished'].includes(previous.phase);
+/** Who asked for a command. Player commands are blocked while the platform pauses the game. */
+export type CommandSource = 'player' | 'platform';
 
-const terminalReason = (snapshot: GameSnapshot): RunEndReason | null => {
+const isActive = (snapshot: GameSnapshot): boolean => snapshot.phase === 'playing' || snapshot.phase === 'paused';
+
+const levelEndReason = (snapshot: GameSnapshot): Exclude<RunEndReason, 'quit'> | null => {
   if (snapshot.phase === 'level-complete' || snapshot.phase === 'finished') return 'complete';
   if (snapshot.phase === 'game-over') return 'fail';
-  if (snapshot.phase === 'menu') return 'quit';
   return null;
 };
+
+// A failing platform call must not leave the game stuck, so it counts as resolved.
+const settle = async (call: () => Promise<void>): Promise<void> => {
+  try {
+    await call();
+  } catch {
+    // Gameplay continues without the platform's confirmation.
+  }
+};
+
+const done = (): Promise<void> => Promise.resolve();
 
 export class GameController {
   readonly events = new EventBus<GameEventMap>();
@@ -27,10 +40,14 @@ export class GameController {
   private systemPauseActive = false;
   private systemMuted = false;
   private ready = false;
+  private taskQueue: Promise<void> = Promise.resolve();
+  private pendingTasks = 0;
+  private tickSkipped = false;
 
   constructor(
     private readonly simulation: SnakeGame,
-    private readonly storage: GameStorage
+    private readonly storage: GameStorage,
+    private readonly platform: GamePlatform = offlinePlatform
   ) {
     this.profile = storage.loadProfile();
     this.audio = new GameAudio(this.profile.playerMuted);
@@ -54,6 +71,15 @@ export class GameController {
     };
   }
 
+  /** True while the game waits for the platform; gameplay is frozen and commands are ignored. */
+  isBusy(): boolean {
+    return this.pendingTasks > 0;
+  }
+
+  isSystemPaused(): boolean {
+    return this.systemPauseActive;
+  }
+
   subscribe(listener: GameListener): () => void {
     return this.simulation.subscribe(listener);
   }
@@ -64,52 +90,44 @@ export class GameController {
     this.events.emit('ready', { occurredAt: Date.now() });
   }
 
-  startNewGame(): void {
-    this.resetPauseState();
-    this.simulation.start();
-    this.audio.play('start');
+  startNewGame(source: CommandSource = 'player'): Promise<void> {
+    return this.runCommand(source, () => this.beginRun(1, () => this.simulation.start()));
   }
 
-  startAtLevel(level: number): void {
+  startAtLevel(level: number, source: CommandSource = 'player'): Promise<void> {
     const highestAllowedLevel = Math.min(this.profile.highestUnlockedLevel, LEVELS.length);
-    if (!Number.isInteger(level) || level < 1 || level > highestAllowedLevel) return;
-    this.goToLevel(level);
+    if (!Number.isInteger(level) || level < 1 || level > highestAllowedLevel) return done();
+    return this.goToLevel(level, source);
   }
 
-  goToLevel(level: number): void {
-    if (!Number.isInteger(level) || level < 1 || level > LEVELS.length) return;
+  goToLevel(level: number, source: CommandSource = 'player'): Promise<void> {
+    if (!Number.isInteger(level) || level < 1 || level > LEVELS.length) return done();
+    return this.runCommand(source, () => this.beginRun(level, () => this.simulation.startAtLevel(level)));
+  }
+
+  restartLevel(source: CommandSource = 'player'): Promise<void> {
+    const { level } = this.simulation.getSnapshot();
+    return this.runCommand(source, () => this.beginRun(level, () => this.simulation.restartLevel()));
+  }
+
+  goToNextLevel(source: CommandSource = 'player'): Promise<void> {
     const snapshot = this.simulation.getSnapshot();
-    if (snapshot.phase === 'playing' || snapshot.phase === 'paused') this.simulation.quitToMenu();
-    this.resetPauseState();
-    this.simulation.startAtLevel(level);
-    this.audio.play('start');
+    if (isActive(snapshot)) return this.goToLevel(Math.min(LEVELS.length, snapshot.level + 1), source);
+    if (snapshot.phase !== 'level-complete') return done();
+    return this.runCommand(source, () => this.beginRun(snapshot.level + 1, () => this.simulation.nextLevel()));
   }
 
-  restartLevel(): void {
-    const snapshot = this.simulation.getSnapshot();
-    if (snapshot.phase === 'playing' || snapshot.phase === 'paused') this.simulation.quitToMenu();
-    this.resetPauseState();
-    this.simulation.restartLevel();
-    this.audio.play('start');
-  }
-
-  goToNextLevel(): void {
-    const snapshot = this.simulation.getSnapshot();
-    if (snapshot.phase === 'playing' || snapshot.phase === 'paused') {
-      this.goToLevel(Math.min(LEVELS.length, snapshot.level + 1));
-      return;
-    }
-    this.resetPauseState();
-    this.simulation.nextLevel();
-    this.audio.play('start');
-  }
-
-  quitToMenu(): void {
-    this.resetPauseState();
-    this.simulation.quitToMenu();
+  quitToMenu(source: CommandSource = 'player'): Promise<void> {
+    if (this.simulation.getSnapshot().phase === 'menu') return done();
+    return this.runCommand(source, async () => {
+      if (isActive(this.simulation.getSnapshot())) await this.endActiveRun();
+      this.resetPauseState();
+      this.simulation.quitToMenu();
+    });
   }
 
   forceGameOver(): void {
+    if (this.isBusy()) return;
     this.resetPauseState();
     this.simulation.forceGameOver();
   }
@@ -119,20 +137,29 @@ export class GameController {
   }
 
   tick(): void {
+    if (this.isBusy()) {
+      this.tickSkipped = true;
+      return;
+    }
     this.simulation.step();
   }
 
-  togglePlayerPause(): void {
-    const snapshot = this.simulation.getSnapshot();
-    if (snapshot.phase !== 'playing' && snapshot.phase !== 'paused') return;
-    this.playerPauseActive = !this.playerPauseActive;
-    this.reconcilePauseState();
+  togglePlayerPause(): Promise<void> {
+    if (!isActive(this.simulation.getSnapshot())) return done();
+    return this.runCommand('player', async () => {
+      const pause = !this.playerPauseActive;
+      await settle(() => (pause ? this.platform.pauseRun() : this.platform.resumeRun()));
+      if (!isActive(this.simulation.getSnapshot())) return;
+      this.playerPauseActive = pause;
+      this.reconcilePauseState();
+    });
   }
 
   setSystemPaused(paused: boolean): void {
     if (this.systemPauseActive === paused) return;
     this.systemPauseActive = paused;
     this.reconcilePauseState();
+    this.events.emit('systemPauseChanged', { paused });
   }
 
   togglePlayerMuted(): void {
@@ -163,17 +190,6 @@ export class GameController {
     const previous = this.previousSnapshot;
     const now = Date.now();
 
-    if (beginsRun(previous, snapshot)) {
-      this.runStartedAt = now;
-      this.profile = { ...this.profile, totalRuns: this.profile.totalRuns + 1 };
-      this.persistProfile();
-      this.events.emit('runStarted', {
-        level: snapshot.level,
-        runNumber: this.profile.totalRuns,
-        occurredAt: now
-      });
-    }
-
     if (snapshot.score !== previous.score) {
       const delta = snapshot.score - previous.score;
       if (delta > 0) this.audio.play('fruit');
@@ -193,18 +209,10 @@ export class GameController {
       });
     }
 
-    const endReason = terminalReason(snapshot);
-    const previousWasActive = previous.phase === 'playing' || previous.phase === 'paused';
-    if (endReason && previousWasActive && this.runStartedAt !== null) {
-      this.events.emit('runEnded', {
-        level: previous.level,
-        score: snapshot.score,
-        progress: endReason === 'complete' ? 1 : previous.progress,
-        reason: endReason,
-        durationMs: Math.max(0, now - this.runStartedAt),
-        occurredAt: now
-      });
-      this.runStartedAt = null;
+    const endReason = levelEndReason(snapshot);
+    if (endReason && isActive(previous) && this.runStartedAt !== null) {
+      const summary = this.summarize(snapshot, now);
+      this.emitRunEnded(endReason, summary, now);
 
       if (endReason === 'complete') {
         const highestUnlockedLevel = Math.min(LEVELS.length, snapshot.level + 1);
@@ -213,9 +221,16 @@ export class GameController {
           this.persistProfile();
         }
         this.audio.play(snapshot.phase === 'finished' ? 'finished' : 'level-complete');
-      } else if (endReason === 'fail') {
+      } else {
         this.audio.play('game-over');
       }
+
+      // The level has already ended in the simulation; the result screen waits for the platform.
+      const finished = snapshot.phase === 'finished';
+      void this.enqueue(async () => {
+        await settle(() => this.platform.endRun(endReason, summary));
+        if (finished) await settle(() => this.platform.finishGame(summary));
+      });
     }
 
     const pauseChanged = snapshot.phase === 'paused' !== (previous.phase === 'paused');
@@ -235,6 +250,85 @@ export class GameController {
     this.events.emit('stateChanged', snapshot);
   };
 
+  /** Runs a command unless another one is pending or, for the player, the platform pauses the game. */
+  private runCommand(source: CommandSource, task: () => Promise<void>): Promise<void> {
+    if (this.isBusy()) return done();
+    if (source === 'player' && this.systemPauseActive) return done();
+    return this.enqueue(task);
+  }
+
+  private enqueue(task: () => Promise<void>): Promise<void> {
+    const idle = this.pendingTasks === 0;
+    this.pendingTasks += 1;
+    if (idle) this.events.emit('busyChanged', { busy: true });
+    // An idle queue starts the task at once, so the platform hears about the moment immediately.
+    const started = idle ? new Promise<void>((resolve) => resolve(task())) : this.taskQueue.then(task);
+    const run = started.finally(() => this.finishTask());
+    this.taskQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private finishTask(): void {
+    this.pendingTasks -= 1;
+    if (this.pendingTasks > 0) return;
+    this.events.emit('busyChanged', { busy: false });
+    // A tick skipped while busy is replayed so the scene's timer is armed again.
+    if (this.tickSkipped) {
+      this.tickSkipped = false;
+      this.tick();
+    }
+  }
+
+  /** Ends an active level with a quit, then starts a level; the old level stays frozen on screen meanwhile. */
+  private async beginRun(level: number, startLevel: () => void): Promise<void> {
+    if (isActive(this.simulation.getSnapshot())) await this.endActiveRun();
+    await settle(() => this.platform.startRun(level));
+
+    this.resetPauseState();
+    startLevel();
+    this.reconcilePauseState();
+
+    const now = Date.now();
+    this.runStartedAt = now;
+    this.profile = { ...this.profile, totalRuns: this.profile.totalRuns + 1 };
+    this.persistProfile();
+    this.events.emit('runStarted', {
+      level: this.simulation.getSnapshot().level,
+      runNumber: this.profile.totalRuns,
+      occurredAt: now
+    });
+    this.audio.play('start');
+  }
+
+  private async endActiveRun(): Promise<void> {
+    const snapshot = this.simulation.getSnapshot();
+    const summary = this.summarize(snapshot, Date.now());
+    await settle(() => this.platform.endRun('quit', summary));
+    this.emitRunEnded('quit', summary, Date.now());
+  }
+
+  private summarize(snapshot: GameSnapshot, now: number): RunSummary {
+    return {
+      level: snapshot.level,
+      score: snapshot.score,
+      levelScore: snapshot.levelScore,
+      progress: snapshot.progress,
+      durationMs: this.runStartedAt === null ? 0 : Math.max(0, now - this.runStartedAt)
+    };
+  }
+
+  private emitRunEnded(reason: RunEndReason, summary: RunSummary, now: number): void {
+    this.events.emit('runEnded', {
+      level: summary.level,
+      score: summary.score,
+      progress: summary.progress,
+      reason,
+      durationMs: summary.durationMs,
+      occurredAt: now
+    });
+    this.runStartedAt = null;
+  }
+
   private reconcilePauseState(): void {
     const pauseSource: Exclude<PauseSource, null> | null = this.systemPauseActive
       ? 'system'
@@ -246,9 +340,9 @@ export class GameController {
     else this.simulation.resume();
   }
 
+  /** Clears only the player's pause; a platform pause stays until the platform lifts it. */
   private resetPauseState(): void {
     this.playerPauseActive = false;
-    this.systemPauseActive = false;
   }
 
   private persistProfile(): void {

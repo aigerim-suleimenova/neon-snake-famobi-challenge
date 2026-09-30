@@ -9,6 +9,7 @@
       content="Neon Snake, a compact browser game built with Phaser and TypeScript."
     />
     <title>Neon Snake</title>
+    <script src="https://api.games.famobi.com/init.js"></script>
   </head>
   <body>
     <main class="game-shell">
@@ -85,6 +86,23 @@
       </section>
     </main>
 
-    <script type="module" src="/src/main.ts"></script>
+    <script>
+      // Loaded after the markup, so the game finds its elements when it runs.
+      (function () {
+        var files = ['game.css', 'game.js'];
+        if (window.GameInterface) {
+          window.GameInterface.init(files);
+          return;
+        }
+        // No SDK (e.g. GitHub Pages or offline): load the game files directly.
+        var style = document.createElement('link');
+        style.rel = 'stylesheet';
+        style.href = files[0];
+        document.head.appendChild(style);
+        var script = document.createElement('script');
+        script.src = files[1];
+        document.body.appendChild(script);
+      })();
+    </script>
   </body>
 </html>

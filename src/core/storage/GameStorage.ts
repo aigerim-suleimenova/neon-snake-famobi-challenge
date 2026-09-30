@@ -10,6 +10,11 @@ export interface GameStorage {
   saveProfile(profile: PlayerProfile): void;
 }
 
+export type KeyValueStore = {
+  getItem(key: string): unknown;
+  setItem(key: string, value: string): void;
+};
+
 const defaultProfile = (): PlayerProfile => ({
   bestScore: 0,
   highestUnlockedLevel: 1,
@@ -17,15 +22,19 @@ const defaultProfile = (): PlayerProfile => ({
   playerMuted: false
 });
 
-export class LocalGameStorage implements GameStorage {
+export class KeyValueGameStorage implements GameStorage {
   private readonly storageKey = 'neon-snake:profile';
+
+  // The store is resolved lazily because accessing window.localStorage can throw when storage is blocked.
+  constructor(private readonly getStore: () => KeyValueStore = () => window.localStorage) {}
 
   loadProfile(): PlayerProfile {
     try {
-      const storedProfile = window.localStorage.getItem(this.storageKey);
+      const storedProfile = this.getStore().getItem(this.storageKey);
       if (!storedProfile) return defaultProfile();
 
-      const value = JSON.parse(storedProfile) as Partial<PlayerProfile>;
+      const value = (typeof storedProfile === 'string' ? JSON.parse(storedProfile) : storedProfile) as Partial<PlayerProfile>;
+      if (typeof value !== 'object' || value === null) return defaultProfile();
       return {
         bestScore: this.nonNegativeInteger(value.bestScore, 0),
         highestUnlockedLevel: Math.min(3, Math.max(1, this.nonNegativeInteger(value.highestUnlockedLevel, 1))),
@@ -39,9 +48,9 @@ export class LocalGameStorage implements GameStorage {
 
   saveProfile(profile: PlayerProfile): void {
     try {
-      window.localStorage.setItem(this.storageKey, JSON.stringify(profile));
+      this.getStore().setItem(this.storageKey, JSON.stringify(profile));
     } catch {
-      // The game remains playable when browser storage is unavailable.
+      // The game remains playable when storage is unavailable.
     }
   }
 

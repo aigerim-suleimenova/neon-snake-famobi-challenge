@@ -3,10 +3,14 @@ import './style.css';
 import Phaser from 'phaser';
 
 import { GameController } from './application/GameController';
-import { LocalGameStorage } from './core/storage/GameStorage';
+import { offlinePlatform } from './application/GamePlatform';
+import { KeyValueGameStorage } from './core/storage/GameStorage';
 import { SnakeScene } from './game/scenes/SnakeScene';
 import { SnakeGame } from './game/snakeGame';
 import type { Direction, GamePhase, GameSnapshot } from './game/types';
+import { connectFamobi } from './platform/famobi/connectFamobi';
+import { getGameInterface } from './platform/famobi/FamobiGameInterface';
+import { FamobiPlatform } from './platform/famobi/FamobiPlatform';
 
 const requiredElement = <T extends HTMLElement>(selector: string): T => {
   const element = document.querySelector<T>(selector);
@@ -29,8 +33,12 @@ const pauseButton = requiredElement<HTMLButtonElement>('#pause-button');
 const muteButton = requiredElement<HTMLButtonElement>('#mute-button');
 const levelSelect = requiredElement<HTMLElement>('#level-select');
 
+// With the Famobi SDK present, saving and the gameplay moments go through it; otherwise the game runs on its own.
+const gameInterface = getGameInterface();
+const storage = new KeyValueGameStorage(gameInterface ? () => gameInterface.storage : undefined);
 const simulation = new SnakeGame();
-const controller = new GameController(simulation, new LocalGameStorage());
+const controller = new GameController(simulation, storage, gameInterface ? new FamobiPlatform(gameInterface) : offlinePlatform);
+if (gameInterface) connectFamobi(controller, gameInterface);
 const snakeScene = new SnakeScene(controller);
 let currentSnapshot = controller.getSnapshot();
 
@@ -111,8 +119,12 @@ const overlayContent: Record<
   })
 };
 
+const resultPhases: GamePhase[] = ['level-complete', 'game-over', 'finished'];
+
 const renderInterface = (snapshot: GameSnapshot): void => {
   currentSnapshot = snapshot;
+  const busy = controller.isBusy();
+  const systemPaused = controller.isSystemPaused();
 
   levelValue.textContent = String(snapshot.level);
   scoreValue.textContent = String(snapshot.score);
@@ -120,30 +132,34 @@ const renderInterface = (snapshot: GameSnapshot): void => {
   fruitValue.textContent = `${snapshot.fruitEaten} / ${snapshot.target}`;
   progressValue.style.transform = `scaleX(${Math.min(1, snapshot.progress)})`;
 
-  const canPause = snapshot.phase === 'playing' || snapshot.phase === 'paused';
+  const canPause = (snapshot.phase === 'playing' || snapshot.phase === 'paused') && !busy && !systemPaused;
   pauseButton.disabled = !canPause;
   pauseButton.setAttribute('aria-label', snapshot.phase === 'paused' ? 'Resume game' : 'Pause game');
   pauseButton.firstElementChild!.textContent = snapshot.phase === 'paused' ? '▶' : 'Ⅱ';
-  levelSelect.hidden = snapshot.phase !== 'menu';
+  levelSelect.hidden = snapshot.phase !== 'menu' || systemPaused;
   levelSelect.querySelectorAll<HTMLButtonElement>('[data-level]').forEach((button) => {
     const level = Number(button.dataset.level);
-    button.disabled = level > controller.getProfile().highestUnlockedLevel;
+    button.disabled = busy || level > controller.getProfile().highestUnlockedLevel;
   });
 
-  if (snapshot.phase === 'playing') {
+  // A result screen appears only once the platform has confirmed the end of the level.
+  if (snapshot.phase === 'playing' || (busy && resultPhases.includes(snapshot.phase))) {
     overlay.hidden = true;
     return;
   }
 
   overlay.hidden = false;
-  const content = overlayContent[snapshot.phase](snapshot);
+  // The platform's pause covers every screen, without the buttons of the screen underneath.
+  const content = systemPaused ? overlayContent.paused({ ...snapshot, pauseSource: 'system' }) : overlayContent[snapshot.phase](snapshot);
   overlayEyebrow.textContent = content.eyebrow;
   overlayTitle.textContent = content.title;
   overlayCopy.textContent = content.copy;
   primaryAction.textContent = content.primary ?? '';
   primaryAction.hidden = !content.primary;
+  primaryAction.disabled = busy;
   secondaryAction.textContent = content.secondary ?? '';
   secondaryAction.hidden = !content.secondary;
+  secondaryAction.disabled = busy;
 };
 
 const performPrimaryAction = (): void => {
@@ -177,6 +193,8 @@ const renderAudioState = (): void => {
 };
 
 controller.subscribe(renderInterface);
+controller.events.on('busyChanged', () => renderInterface(controller.getSnapshot()));
+controller.events.on('systemPauseChanged', () => renderInterface(controller.getSnapshot()));
 controller.events.on('audioChanged', renderAudioState);
 renderAudioState();
 

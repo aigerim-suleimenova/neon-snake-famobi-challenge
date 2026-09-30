@@ -48,6 +48,7 @@ export class SnakeGame {
       phase: this.phase,
       level: this.level,
       score: this.score,
+      levelScore: this.score - this.scoreAtLevelStart,
       fruitEaten: this.fruitEaten,
       target: config.target,
       progress: this.fruitEaten / config.target,

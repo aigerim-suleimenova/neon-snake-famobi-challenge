@@ -18,5 +18,7 @@ export type GameEventMap = {
   pauseChanged: { paused: boolean; source: PauseSource };
   audioChanged: { playerMuted: boolean; systemMuted: boolean; effectiveMuted: boolean };
   gameFinished: { score: number; bestScore: number };
+  busyChanged: { busy: boolean };
+  systemPauseChanged: { paused: boolean };
   stateChanged: GameSnapshot;
 };
