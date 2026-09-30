@@ -2,7 +2,7 @@
 
 A compact browser game built with Phaser 3, TypeScript, Vite, and a DOM-based interface, integrated with the [Famobi GameInterface SDK](https://docs.famobi.com/).
 
-This repository covers part 1 of the Famobi development challenge: the SDK integration. Gameplay analytics, a backend and a dashboard are not part of it yet.
+This repository covers part 1 of the Famobi development challenge: the SDK integration. Parts 2–4 (gameplay analytics, a Node.js backend on the Firebase Local Emulator Suite, and a React dashboard) are not part of it yet.
 
 ## Gameplay
 
@@ -52,9 +52,9 @@ When no GameInterface exists (for example on GitHub Pages, or offline), the page
 - `GameController` runs player and platform commands one at a time. While it waits for the platform it is "busy": the snake is frozen, buttons are disabled, and a result screen stays hidden until `gameEnd` resolves.
 - `GameInterface.init()` runs each file as a classic script, so the production build is a single IIFE bundle (`game.js`) plus `game.css`. In development a small Vite shim serves the same two URLs, so `pnpm dev` also loads the game through `init()`.
 
-## Run locally
+## Install and run
 
-Requirements: Node.js 22.13 or newer (pnpm 11 does not start on older versions) and pnpm 11.
+Requirements: Node.js 22.13 or newer (pnpm 11 does not start on older versions) and pnpm 11. With nvm: `nvm install 22 && nvm use 22`.
 
 ```bash
 pnpm install
@@ -63,7 +63,7 @@ pnpm dev
 
 Then open http://localhost:5173/. On localhost, Famobi's `init.js` loads its local tester SDK, which needs an internet connection. Offline, the page falls back to loading the game without the SDK.
 
-## Checks
+Other scripts:
 
 ```bash
 pnpm check     # type check
@@ -72,19 +72,27 @@ pnpm build     # production build into dist/
 pnpm preview   # serve dist/ at http://localhost:4173/
 ```
 
-## Verify the SDK integration locally
+## Test the complete flow locally
+
+For part 1 the flow is: the game → the Famobi SDK. Run `pnpm test` for the automated checks, then follow these steps in the browser with Famobi's local tester:
 
 1. Run `pnpm dev` (or `pnpm build` and `pnpm preview`) and open the game in Chrome with DevTools open. Every SDK call is logged in the console as `GameInterface …`.
 2. Loading: the console shows `getItem('neon-snake:profile')`, `sendPreloadProgress(0)`, the registered listeners, `sendPreloadProgress(100)` and `gameReady()`.
 3. Play: Start logs `gameStart(1)`; eating fruit logs `sendScore` and `sendProgress`; clearing or failing a level logs the level and total `sendScore` and `gameEnd(...)` before the result screen appears; clearing level 3 also logs `gameFinished()`.
 4. Pause and mute: the game's ‖ and ♪ buttons log `gamePause`/`gameResume` and `gameMuted`.
-5. Platform events: after `gameReady` the tester adds a collapsible test menu (≡, top left). Use it to act as the platform: pause and resume during a level and on the menu, mute and unmute, go to a level, restart, game over. The test menu is part of Famobi's local tester and does not appear on the Famobi portal.
+5. Platform events: after `gameReady` the tester adds a collapsible test menu (≡, top left). Use it to act as the platform: pause and resume during a level and on the menu, mute and unmute, go to a level, restart, quit, home. (It has no game-over button; `onGameOver` is covered by the unit tests.) The test menu is part of Famobi's local tester and does not appear on the Famobi portal.
 6. Loading order: open `http://localhost:4173/?holdInit=1`. No game file loads until you click START in the tester's overlay.
 7. Without the SDK: in DevTools, block the request for `init.js` (Network tab → right-click → Block request URL) and reload. The game loads by itself and plays normally, with no `GameInterface` logs.
 
-### What was verified
+### How I confirmed it works
 
-Besides the 34 unit tests, the integration was checked in Chrome (headless, driven by a script that clicks the game's and the tester's buttons) on 2026-10-01:
+1. **Unit tests** (34, `pnpm test`) check the logic without a browser. A fake Famobi SDK records every call, and the tests assert the order and that the game waits, for example that no result screen appears before `gameEnd` resolves.
+2. **Browser checks** load the real game in a headless Chrome, where the page counts as visible and the game actually runs.
+   - A script clicks the game's real buttons and the tester's real buttons (pause, mute, restart, go to level, quit, home). It only steers the snake itself.
+   - It reads the calls that Famobi's local tester writes to the console, compares their order with the specs, and checks what is on screen at each step.
+3. **The no-SDK run** blocks `init.js` and confirms the game still works on its own.
+
+Results on 2026-10-01:
 
 - **Without the SDK** (`init.js` blocked, built game): the game loads, plays, pauses, clears a level and saves the profile to `localStorage`; no SDK calls.
 - **With the SDK** (local tester, `pnpm dev`): loading order, `gameStart` before each level, live and end-of-level scores, progress, `gameEnd` before each result screen, `gameFinished` after level 3, player pause and mute, platform pause on the menu and during a level, master mute, and the restart, go-to-level, quit and home requests all behaved as described above.
@@ -125,9 +133,9 @@ The game simulation remains independent from Phaser and from Famobi. The applica
 
 The included workflow builds and deploys the game to GitHub Pages whenever the default branch is updated; there `init.js` stays inactive and the game runs without the SDK.
 
-## Design choices and assumptions
+## Main technical decisions and assumptions
 
-Where the brief or the Famobi docs leave room for interpretation, these are the choices made and why.
+The overall structure is described under [How it is built](#how-it-is-built). Where the brief or the Famobi docs leave room for interpretation, these are the choices made and why.
 
 **Scope**
 
