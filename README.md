@@ -386,6 +386,7 @@ Automated tests: 76 in `game/`, 96 in `backend/` plus 6 against the real Firesto
 * Keep counters per level instead of reading all runs on each request, once the data grows.
 * Add authentication and rate limiting to the event endpoint.
 * Generate the types of all three projects from one schema, instead of keeping three copies checked by contract tests.
+* Restructure the provided game code, which I kept as it was because the brief asks not to redesign the game: split `GameController` (commands, platform waits, saving and audio in one class) and move the UI code out of `main.ts`, so it follows the same small, injected parts as the new code.
 * Refresh the dashboard automatically and keep the last data visible when a refresh fails.
 * Add automated browser tests (for example Playwright) for the whole flow and the SDK call order.
 
