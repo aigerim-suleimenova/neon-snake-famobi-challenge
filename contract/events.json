@@ -1,0 +1,83 @@
+[
+  {
+    "schemaVersion": 1,
+    "eventId": "id-3",
+    "type": "run_started",
+    "sessionId": "id-1",
+    "runId": "id-2",
+    "level": 1,
+    "occurredAt": "2026-10-01T12:00:00.000Z"
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "id-4",
+    "type": "run_ended",
+    "sessionId": "id-1",
+    "runId": "id-2",
+    "level": 1,
+    "occurredAt": "2026-10-01T12:00:00.750Z",
+    "outcome": "complete",
+    "failureReason": null,
+    "score": 50,
+    "levelScore": 50,
+    "progress": 100,
+    "durationMs": 750
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "id-6",
+    "type": "run_started",
+    "sessionId": "id-1",
+    "runId": "id-5",
+    "level": 2,
+    "occurredAt": "2026-10-01T12:00:00.750Z"
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "id-7",
+    "type": "run_ended",
+    "sessionId": "id-1",
+    "runId": "id-5",
+    "level": 2,
+    "occurredAt": "2026-10-01T12:00:01.200Z",
+    "outcome": "fail",
+    "failureReason": "obstacle",
+    "score": 90,
+    "levelScore": 40,
+    "progress": 29,
+    "durationMs": 450
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "id-9",
+    "type": "run_started",
+    "sessionId": "id-1",
+    "runId": "id-8",
+    "level": 2,
+    "occurredAt": "2026-10-01T12:00:01.200Z"
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "id-10",
+    "type": "run_ended",
+    "sessionId": "id-1",
+    "runId": "id-8",
+    "level": 2,
+    "occurredAt": "2026-10-01T12:00:01.350Z",
+    "outcome": "quit",
+    "failureReason": null,
+    "score": 70,
+    "levelScore": 20,
+    "progress": 14,
+    "durationMs": 150
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "id-12",
+    "type": "run_started",
+    "sessionId": "id-1",
+    "runId": "id-11",
+    "level": 1,
+    "occurredAt": "2026-10-01T12:00:01.350Z"
+  }
+]

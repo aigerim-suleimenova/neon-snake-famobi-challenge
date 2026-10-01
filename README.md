@@ -113,7 +113,9 @@ neon-snake/
 ├── game/          # Phaser game + Famobi integration
 ├── backend/       # Analytics API + Firestore
 ├── dashboard/     # React analytics dashboard
+├── contract/      # Sample data checked by all three projects' contract tests
 ├── openspec/      # Specifications and implementation plans
+├── .github/       # CI: check, test and build all three projects
 └── README.md
 ```
 
@@ -255,6 +257,20 @@ pnpm test
 pnpm build
 ```
 
+### Contract tests
+
+The three projects share no code, so contract tests check that they still fit together, using two data files in `contract/`:
+
+* `game/` plays a fixed scenario through the real game controller and checks that it produces exactly `contract/events.json`.
+* `backend/` checks that every event in that file passes validation, posts them to the real API and checks that the statistics it serves equal `contract/stats.json`.
+* `dashboard/` reads `contract/stats.json` through its API client and checks the values it would show.
+
+If one side changes the data shape, one of these tests fails. They run with `pnpm test` in each project.
+
+### CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs `pnpm check` and `pnpm test` for all three projects on every push and pull request, plus the Firestore emulator tests for the backend and the production builds for the game and the dashboard.
+
 ## Test the Complete Flow
 
 With all four terminals from [Run Locally](#run-locally) running:
@@ -298,7 +314,7 @@ Testing covered:
 
 End-to-end testing on 2026-10-01 confirmed that gameplay events were stored correctly and that dashboard statistics matched the backend data.
 
-Automated tests: 75 in `game/`, 94 in `backend/` plus 6 against the real Firestore emulator, and 75 in `dashboard/`.
+Automated tests: 76 in `game/`, 96 in `backend/` plus 6 against the real Firestore emulator, and 76 in `dashboard/`, including the contract tests. All of them run in CI.
 
 ### How the Famobi SDK integration was confirmed
 
@@ -344,7 +360,7 @@ Automated tests: 75 in `game/`, 94 in `backend/` plus 6 against the real Firesto
 
 **Project**
 
-* `game/`, `backend/` and `dashboard/` are independent projects that share no code and talk only over HTTP; the API contract is written once in `backend/API.md`.
+* `game/`, `backend/` and `dashboard/` are independent projects that share no code and talk only over HTTP; the API contract is written once in `backend/API.md`, and contract tests on shared sample data (`contract/`) catch any drift between them.
 
 ## Assumptions
 
@@ -369,7 +385,7 @@ Automated tests: 75 in `game/`, 94 in `backend/` plus 6 against the real Firesto
 * Detect closed tabs (for example after a timeout) and show them as their own outcome.
 * Keep counters per level instead of reading all runs on each request, once the data grows.
 * Add authentication and rate limiting to the event endpoint.
-* Share or generate the API contract so the game, backend and dashboard cannot drift apart.
+* Generate the types of all three projects from one schema, instead of keeping three copies checked by contract tests.
 * Refresh the dashboard automatically and keep the last data visible when a refresh fails.
 * Add automated browser tests (for example Playwright) for the whole flow and the SDK call order.
 
