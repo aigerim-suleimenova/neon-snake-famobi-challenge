@@ -368,7 +368,7 @@ Automated tests: 76 in `game/`, 96 in `backend/` plus 6 against the real Firesto
 * "Left the gameplay" in the brief is the `quit` outcome; a closed tab cannot be told apart from a run still in play, so it stays `unfinished`.
 * The Famobi total score is the run's score on screen, not a lifetime total; to confirm with Famobi.
 * Ads, the `hasFeature` flags, the copyright logo and localisation are out of scope, because the brief does not ask for them.
-
+* The total score is an assumption because the documentation doesn't clearly define what ‘total’ means. The example suggests a lifetime total, so I chose the game's existing run total and flagged it for confirmation rather than silently treating my interpretation as a requirement.
 ## Known Limitations
 
 * Closed tabs remain `unfinished`.
