@@ -244,6 +244,8 @@ pnpm test
 pnpm test:emulator
 ```
 
+`pnpm test:emulator` starts its own Firestore emulator, so stop `pnpm emulators` first (otherwise it fails with "port taken").
+
 ### Dashboard
 
 ```bash
@@ -295,6 +297,19 @@ Testing covered:
 * Responsive layout
 
 End-to-end testing on 2026-10-01 confirmed that gameplay events were stored correctly and that dashboard statistics matched the backend data.
+
+Automated tests: 75 in `game/`, 94 in `backend/` plus 6 against the real Firestore emulator, and 75 in `dashboard/`.
+
+### How the Famobi SDK integration was confirmed
+
+* **Unit tests** use a fake Famobi SDK that records every call. They check the order of the calls and that the game waits where the SDK requires it, for example that no result screen appears before `gameEnd` resolves.
+* **Famobi's local tester** (loaded by `init.js` on localhost) logs every SDK call in the browser console as `GameInterface ...`. With it I checked:
+  * loading: `sendPreloadProgress(0)`, `sendPreloadProgress(100)`, then `gameReady()`
+  * `gameStart(level)` before each level, `sendScore` and `sendProgress` when fruit is eaten
+  * `sendScore` and `gameEnd(...)` before every result screen, and `gameFinished()` after clearing level 3
+  * the player's pause and mute buttons
+  * the tester's menu (≡, top left) acting as the platform: pause, mute, restart, go to level, quit and home
+* **Without the SDK:** with `init.js` blocked in DevTools, the game loads by itself, plays and saves to `localStorage`.
 
 ## Technical Decisions
 
@@ -364,4 +379,11 @@ The project was developed with **Claude Code**.
 
 AI was used for documentation review, OpenSpec planning, implementation, testing and dashboard development.
 
+The dashboard's visual reference was generated with Claude Design and then rebuilt in React. The plans behind each part are in `openspec/changes/archive/`; the `.claude/` folder holds the OpenSpec commands used to create and apply them.
+
 The implementation and technical decisions were reviewed manually.
+
+Total time: about 6–7 hours, within the suggested time-box. AI made the implementation faster; most of my time went into the decisions, reviewing each task and testing the complete flow.
+
+The dashboard's visual reference was generated with Claude Design.
+
