@@ -109,14 +109,14 @@ main.ts ─ connectAnalytics(controller.events, sender, ids) ─ EventSender
                                                                       ├─ HttpEventSender
                                                                       └─ NoopEventSender (no URL configured)
 ```
-- `game/src/platform/analytics/`: `AnalyticsEvent` type, `connectAnalytics` turns `runStarted`/`runEnded` into contract events (a new run ID per start; the ended run reuses its run ID, session ID and level; progress → 0-100; failure reason only for `fail`; `occurredAt` taken from the controller event, so no clock is needed), `HttpEventSender`, `NoopEventSender`.
+- `game/src/platform/analytics/`: `AnalyticsEvent` type, `connectAnalytics` turns `runStarted`/`runEnded` into contract events (a new run ID per start; each event's ID, created once when the event is built; the ended run reuses its run ID, session ID and level; progress → 0-100; failure reason only for `fail`; `occurredAt` taken from the controller event, so no clock is needed), `HttpEventSender`, `NoopEventSender`.
 - `HttpEventSender`:
-  - Each event gets its event ID once, when it is created. Retries and beacons resend the same ID, so the backend can count repeats as duplicates.
+  - Each event gets its event ID once, when `connectAnalytics` builds it; the sender never creates or changes IDs. Retries and beacons resend the same ID, so the backend can count repeats as duplicates.
   - Events wait in a pending list (max 100) until they are answered. A pending event is either *idle* or *in flight*. Only idle events are put in a `fetch`, so no event is in two requests at once.
   - When the list is full, the oldest event is dropped, even if it is in flight. A later answer for a dropped event is ignored.
   - Sending: if no backoff is running, a new event is posted at once with `fetch` (JSON, `AbortSignal.timeout(5 s)`). During backoff, new events stay idle and go out with the next retry.
   - Answers:
-    - `2xx` → the submitted events are resolved permanently: they leave the pending list and are never resent, and the backoff resets to 1 s. On `202`, the events listed in `rejected` are dropped, not retried.
+    - `2xx` → the submitted events are resolved permanently: they leave the pending list and are never resent, and the backoff resets to 1 s. The body is not read: events a `202` lists in `rejected` belong to the resolved batch, so they are dropped too and never retried.
     - Network error, timeout, `408`, `429` or `5xx` → the events become idle again and are retried with backoff: the base delay is 1 s doubling to 30 s; the actual delay is `min(30 s, base × random(0.8, 1.2))`, so jitter never pushes it above 30 s (at the cap it is 24-30 s); at most 50 events per batch. `Retry-After` is not read: the backend has no rate limiting, and the header would need `Access-Control-Expose-Headers` to be readable cross-origin.
     - Any other `4xx` → the events are dropped.
   - On `visibilitychange` (hidden) and `pagehide`, all pending events, idle and in flight, go out with `navigator.sendBeacon` as `text/plain` in batches of 50. A JSON content type would need a CORS preflight, which a beacon cannot do.
@@ -125,7 +125,7 @@ main.ts ─ connectAnalytics(controller.events, sender, ids) ─ EventSender
     - `sendBeacon` returning `true` only means the browser queued the batch, so these events can be lost. We accept that at page exit.
   - The backend parses `text/plain` bodies as JSON and answers the CORS preflight for the `fetch` path's `application/json`.
   - `dispose()` removes the page listeners and clears the timers. The game never calls it on page exit: `beforeunload` fires before `pagehide`, so disposing there would remove the beacon listener before it runs. It exists for tests and teardown.
-  - `fetch`, `sendBeacon`, timers, page events, the ID generator and the random source for jitter are injected for tests.
+  - `fetch`, `sendBeacon`, timers, page events and the random source for jitter are injected for tests; the ID generator is injected into `connectAnalytics`.
 - The URL comes from `VITE_ANALYTICS_URL` at build time (Vite replaces it in the IIFE build too); unset → `NoopEventSender`. `game/.env.example` documents it.
 - `runEnded` gains `levelScore` (from the summary the controller already builds) and `failureReason` (from the snapshot; `null` unless the outcome is `fail`); no game rule changes.
 
