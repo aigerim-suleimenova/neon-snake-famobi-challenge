@@ -8,6 +8,9 @@ import { KeyValueGameStorage } from './core/storage/GameStorage';
 import { SnakeScene } from './game/scenes/SnakeScene';
 import { SnakeGame } from './game/snakeGame';
 import type { Direction, GamePhase, GameSnapshot } from './game/types';
+import { connectAnalytics } from './platform/analytics/connectAnalytics';
+import { createEventSender } from './platform/analytics/createEventSender';
+import { randomId } from './platform/analytics/randomId';
 import { connectFamobi } from './platform/famobi/connectFamobi';
 import { getGameInterface } from './platform/famobi/FamobiGameInterface';
 import { FamobiPlatform } from './platform/famobi/FamobiPlatform';
@@ -39,6 +42,9 @@ const storage = new KeyValueGameStorage(gameInterface ? () => gameInterface.stor
 const simulation = new SnakeGame();
 const controller = new GameController(simulation, storage, gameInterface ? new FamobiPlatform(gameInterface) : offlinePlatform);
 if (gameInterface) connectFamobi(controller, gameInterface);
+// Gameplay analytics for our own backend; off without VITE_ANALYTICS_URL. The sender is never disposed:
+// beforeunload fires before pagehide, and disposing would remove the listener that hands events to sendBeacon.
+connectAnalytics(controller.events, createEventSender(import.meta.env.VITE_ANALYTICS_URL), randomId);
 const snakeScene = new SnakeScene(controller);
 let currentSnapshot = controller.getSnapshot();
 

@@ -29,7 +29,10 @@ export type GameSnapshot = {
   obstacles: Point[];
   direction: Direction;
   pauseSource: PauseSource;
-  failureReason: 'wall' | 'snake' | 'obstacle' | 'external' | null;
+  failureReason: FailureReason | null;
 };
+
+/** What ended a failed level; `external` is a game over requested by the platform. */
+export type FailureReason = 'wall' | 'snake' | 'obstacle' | 'external';
 
 export type GameListener = (snapshot: GameSnapshot) => void;

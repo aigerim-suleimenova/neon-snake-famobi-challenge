@@ -3,7 +3,7 @@ import { EventBus } from '../core/events/EventBus';
 import type { GameStorage, PlayerProfile } from '../core/storage/GameStorage';
 import { LEVELS } from '../game/levels';
 import { SnakeGame } from '../game/snakeGame';
-import type { Direction, GameListener, GameSnapshot, PauseSource } from '../game/types';
+import type { Direction, FailureReason, GameListener, GameSnapshot, PauseSource } from '../game/types';
 import type { GameEventMap, RunEndReason } from './gameEvents';
 import { offlinePlatform, type GamePlatform, type RunSummary } from './GamePlatform';
 
@@ -212,7 +212,7 @@ export class GameController {
     const endReason = levelEndReason(snapshot);
     if (endReason && isActive(previous) && this.runStartedAt !== null) {
       const summary = this.summarize(snapshot, now);
-      this.emitRunEnded(endReason, summary, now);
+      this.emitRunEnded(endReason, summary, now, endReason === 'fail' ? snapshot.failureReason : null);
 
       if (endReason === 'complete') {
         const highestUnlockedLevel = Math.min(LEVELS.length, snapshot.level + 1);
@@ -304,7 +304,7 @@ export class GameController {
     const snapshot = this.simulation.getSnapshot();
     const summary = this.summarize(snapshot, Date.now());
     await settle(() => this.platform.endRun('quit', summary));
-    this.emitRunEnded('quit', summary, Date.now());
+    this.emitRunEnded('quit', summary, Date.now(), null);
   }
 
   private summarize(snapshot: GameSnapshot, now: number): RunSummary {
@@ -317,12 +317,19 @@ export class GameController {
     };
   }
 
-  private emitRunEnded(reason: RunEndReason, summary: RunSummary, now: number): void {
+  private emitRunEnded(
+    reason: RunEndReason,
+    summary: RunSummary,
+    now: number,
+    failureReason: FailureReason | null
+  ): void {
     this.events.emit('runEnded', {
       level: summary.level,
       score: summary.score,
+      levelScore: summary.levelScore,
       progress: summary.progress,
       reason,
+      failureReason,
       durationMs: summary.durationMs,
       occurredAt: now
     });

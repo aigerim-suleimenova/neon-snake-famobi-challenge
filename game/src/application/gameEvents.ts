@@ -1,4 +1,4 @@
-import type { GameSnapshot, PauseSource } from '../game/types';
+import type { FailureReason, GameSnapshot, PauseSource } from '../game/types';
 
 export type RunEndReason = 'complete' | 'fail' | 'quit';
 
@@ -8,8 +8,12 @@ export type GameEventMap = {
   runEnded: {
     level: number;
     score: number;
+    /** Points earned in this level only. */
+    levelScore: number;
     progress: number;
     reason: RunEndReason;
+    /** Set only when the reason is `fail`. */
+    failureReason: FailureReason | null;
     durationMs: number;
     occurredAt: number;
   };

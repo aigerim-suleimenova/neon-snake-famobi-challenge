@@ -222,6 +222,50 @@ describe('GameController run summary', () => {
   });
 });
 
+describe('GameController runEnded event', () => {
+  it('reports the level score and no failure reason for a cleared level', async () => {
+    const { record, ticks, startLevel } = setup();
+    const ended = record('runEnded');
+    await startLevel();
+
+    ticks(5);
+    expect(ended).toMatchObject([{ reason: 'complete', level: 1, score: 50, levelScore: 50, progress: 1, failureReason: null }]);
+  });
+
+  it('reports the failure reason and level score for a failed level', async () => {
+    const { controller, fake, record, ticks, startLevel } = setup();
+    await startLevel();
+    ticks(5);
+    await fake.resolveAll();
+    await startLevel(() => controller.goToNextLevel());
+    const ended = record('runEnded');
+
+    ticks(3);
+    expect(ended).toMatchObject([{ reason: 'fail', level: 2, score: 90, levelScore: 40, failureReason: 'obstacle' }]);
+  });
+
+  it('reports the failure reason external when the platform ends the level', async () => {
+    const { controller, record, ticks, startLevel } = setup();
+    const ended = record('runEnded');
+    await startLevel();
+    ticks(2);
+
+    controller.forceGameOver();
+    expect(ended).toMatchObject([{ reason: 'fail', levelScore: 20, failureReason: 'external' }]);
+  });
+
+  it('reports no failure reason when the player quits', async () => {
+    const { controller, fake, record, ticks, startLevel } = setup();
+    const ended = record('runEnded');
+    await startLevel();
+    ticks(2);
+
+    void controller.quitToMenu();
+    await fake.resolveAll();
+    expect(ended).toMatchObject([{ reason: 'quit', score: 20, levelScore: 20, failureReason: null }]);
+  });
+});
+
 describe('GameController pause', () => {
   it('pauses and resumes only after the platform resolves', async () => {
     const { controller, fake, snapshot, startLevel } = setup();
