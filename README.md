@@ -47,8 +47,8 @@ When no GameInterface exists (for example on GitHub Pages, or offline), the page
 
 ### How it is built
 
-- `src/application/GamePlatform.ts` is a small interface for the awaited moments (`startRun`, `endRun`, `finishGame`, `pauseRun`, `resumeRun`). The controller only knows this interface; `offlinePlatform` is used without the SDK.
-- `src/platform/famobi/` holds all Famobi knowledge: `FamobiPlatform` implements the interface with SDK calls, and `connectFamobi` wires loading, live score and progress, pause, mute and the platform requests.
+- `game/src/application/GamePlatform.ts` is a small interface for the awaited moments (`startRun`, `endRun`, `finishGame`, `pauseRun`, `resumeRun`). The controller only knows this interface; `offlinePlatform` is used without the SDK.
+- `game/src/platform/famobi/` holds all Famobi knowledge: `FamobiPlatform` implements the interface with SDK calls, and `connectFamobi` wires loading, live score and progress, pause, mute and the platform requests.
 - `GameController` runs player and platform commands one at a time. While it waits for the platform it is "busy": the snake is frozen, buttons are disabled, and a result screen stays hidden until `gameEnd` resolves.
 - `GameInterface.init()` runs each file as a classic script, so the production build is a single IIFE bundle (`game.js`) plus `game.css`. In development a small Vite shim serves the same two URLs, so `pnpm dev` also loads the game through `init()`.
 
@@ -57,26 +57,27 @@ When no GameInterface exists (for example on GitHub Pages, or offline), the page
 Requirements: Node.js 22.13 or newer (pnpm 11 does not start on older versions) and pnpm 11. With nvm: `nvm install 22 && nvm use 22`.
 
 ```bash
+cd game
 pnpm install
 pnpm dev
 ```
 
 Then open http://localhost:5173/. On localhost, Famobi's `init.js` loads its local tester SDK, which needs an internet connection. Offline, the page falls back to loading the game without the SDK.
 
-Other scripts:
+Other scripts, also run inside `game/`:
 
 ```bash
 pnpm check     # type check
 pnpm test      # unit tests (Vitest)
-pnpm build     # production build into dist/
-pnpm preview   # serve dist/ at http://localhost:4173/
+pnpm build     # production build into game/dist/
+pnpm preview   # serve game/dist/ at http://localhost:4173/
 ```
 
 ## Test the complete flow locally
 
-For part 1 the flow is: the game → the Famobi SDK. Run `pnpm test` for the automated checks, then follow these steps in the browser with Famobi's local tester:
+For part 1 the flow is: the game → the Famobi SDK. Inside `game/`, run `pnpm test` for the automated checks, then follow these steps in the browser with Famobi's local tester:
 
-1. Run `pnpm dev` (or `pnpm build` and `pnpm preview`) and open the game in Chrome with DevTools open. Every SDK call is logged in the console as `GameInterface …`.
+1. In `game/`, run `pnpm dev` (or `pnpm build` and `pnpm preview`) and open the game in Chrome with DevTools open. Every SDK call is logged in the console as `GameInterface …`.
 2. Loading: the console shows `getItem('neon-snake:profile')`, `sendPreloadProgress(0)`, the registered listeners, `sendPreloadProgress(100)` and `gameReady()`.
 3. Play: Start logs `gameStart(1)`; eating fruit logs `sendScore` and `sendProgress`; clearing or failing a level logs the level and total `sendScore` and `gameEnd(...)` before the result screen appears; clearing level 3 also logs `gameFinished()`.
 4. Pause and mute: the game's ‖ and ♪ buttons log `gamePause`/`gameResume` and `gameMuted`.
@@ -101,32 +102,40 @@ Results on 2026-10-01:
 
 ## Project structure
 
+The repository holds independent projects side by side, each with its own `package.json` and install. They share no code and will talk to each other only over HTTP; `backend/` and `dashboard/` will be added next to `game/` the same way.
+
 ```text
-index.html                 # loads init.js, then the game through GameInterface.init()
-public/famobi.json         # { "maxLevels": 3 }
-vite.config.ts             # IIFE build and the dev-server shim
-src/
-├── application/
-│   ├── GameController.ts  # commands, platform waits, persistence, domain events
-│   ├── GamePlatform.ts    # awaited platform moments + offlinePlatform
-│   └── gameEvents.ts
-├── core/
-│   ├── audio/GameAudio.ts
-│   ├── events/EventBus.ts
-│   └── storage/GameStorage.ts   # profile over any key-value store (SDK storage or localStorage)
-├── game/
-│   ├── input.ts
-│   ├── levels.ts
-│   ├── scenes/SnakeScene.ts
-│   ├── snakeGame.ts
-│   └── types.ts
-├── platform/famobi/
-│   ├── FamobiGameInterface.ts   # SDK types, getGameInterface()
-│   ├── FamobiPlatform.ts        # awaited moments as SDK calls
-│   └── connectFamobi.ts         # loading, score, progress, pause, mute, requests
-├── test/spawnFoodAhead.ts       # test helper: fruit always spawns in front of the snake
-├── main.ts
-└── style.css
+README.md
+LICENSE
+.github/workflows/deploy-pages.yml   # builds game/ and deploys it to GitHub Pages
+openspec/                            # plans (changes) and the resulting specs
+game/                                # the game: an independent Vite project
+├── package.json
+├── index.html                 # loads init.js, then the game through GameInterface.init()
+├── public/famobi.json         # { "maxLevels": 3 }
+├── vite.config.ts             # IIFE build and the dev-server shim
+└── src/
+    ├── application/
+    │   ├── GameController.ts  # commands, platform waits, persistence, domain events
+    │   ├── GamePlatform.ts    # awaited platform moments + offlinePlatform
+    │   └── gameEvents.ts
+    ├── core/
+    │   ├── audio/GameAudio.ts
+    │   ├── events/EventBus.ts
+    │   └── storage/GameStorage.ts   # profile over any key-value store (SDK storage or localStorage)
+    ├── game/
+    │   ├── input.ts
+    │   ├── levels.ts
+    │   ├── scenes/SnakeScene.ts
+    │   ├── snakeGame.ts
+    │   └── types.ts
+    ├── platform/famobi/
+    │   ├── FamobiGameInterface.ts   # SDK types, getGameInterface()
+    │   ├── FamobiPlatform.ts        # awaited moments as SDK calls
+    │   └── connectFamobi.ts         # loading, score, progress, pause, mute, requests
+    ├── test/spawnFoodAhead.ts       # test helper: fruit always spawns in front of the snake
+    ├── main.ts
+    └── style.css
 ```
 
 The game simulation remains independent from Phaser and from Famobi. The application controller coordinates commands, persistence, audio, and domain events; the Famobi adapter translates them into SDK calls. The Phaser scene adapts simulation state into graphics and input, while the HUD and menus remain accessible DOM elements.
